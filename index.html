@@ -399,7 +399,9 @@
   @media (max-width:760px){ .logo-watermark{display:none;} }
 
   @media (prefers-reduced-motion: reduce){
-    *{animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important;}
+    *:not(#boot):not(#boot *):not(#crest):not(.boot-title):not(.boot-code):not(.boot-sub):not(.boot-enter){
+      animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important;
+    }
   }
 </style>
 </head>
@@ -473,7 +475,8 @@
   </section>
 
   <footer>
-    made by insomniacs, for insomniacs — <b>IIT Jodhpur</b>
+    made by insomniacs, for insomniacs — <b>IIT Jodhpur</b><br>
+    <span style="opacity:0.6;">built by MAGGIE & TONY 🎧</span>
   </footer>
 </main>
 
@@ -520,6 +523,9 @@
 </div>
 
 <script type="module">
+window.addEventListener('error', (e)=>{
+  console.error('Page error:', e.message, e.filename, e.lineno);
+});
 // ===== FIREBASE BACKEND (paste your config below to go live) =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -582,7 +588,16 @@ const SPOTS = [
 const STORAGE_KEY = 'live-jams';
 const VIEW_KEY_PREFIX = 'views:';
 const ADMIN_PASSWORD = 'iitj404';
-let localJoined = new Set();
+function getJoinedSet(){
+  try{
+    const raw = localStorage.getItem('joined-jams');
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  }catch(e){ return new Set(); }
+}
+function saveJoinedSet(set){
+  try{ localStorage.setItem('joined-jams', JSON.stringify([...set])); }catch(e){}
+}
+let localJoined = getJoinedSet();
 let activeTagFilter = null;
 
 const TAGS = [
@@ -803,6 +818,7 @@ async function renderJams(){
       const id = btn.dataset.id;
       if(localJoined.has(id)) return;
       localJoined.add(id);
+      saveJoinedSet(localJoined);
       const jams2 = await loadAllJams();
       const target = jams2.find(j=>j.id===id);
       if(target){ target.joins = (target.joins||0)+1; await saveJams(jams2); }
@@ -871,19 +887,37 @@ function openModal(){ el('#overlay').classList.add('open'); }
 function closeModal(){ el('#overlay').classList.remove('open'); }
 
 async function submitJam(){
-  const name = el('#fName').value.trim();
+  const nameEl = el('#fName');
+  const name = nameEl.value.trim();
   const spot = el('#fSpot').value;
   const tag = el('#fTag').value;
   const vibe = el('#fVibe').value.trim();
   const note = el('#fNote').value.trim();
-  if(!name){ el('#fName').focus(); return; }
-  const jams = await loadAllJams();
-  const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), joins: 0, pinned: false };
-  jams.unshift(jam);
-  await saveJams(jams);
-  el('#fName').value=''; el('#fVibe').value=''; el('#fNote').value='';
-  closeModal();
-  renderJams();
+  if(!name){
+    nameEl.style.borderColor = '#ff6b6b';
+    nameEl.placeholder = 'Type your name here first!';
+    nameEl.focus();
+    setTimeout(()=>{ nameEl.style.borderColor = ''; }, 2000);
+    return;
+  }
+  const submitBtn = el('#submitBtn');
+  submitBtn.textContent = 'Posting...';
+  submitBtn.disabled = true;
+  try{
+    const jams = await loadAllJams();
+    const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), joins: 0, pinned: false };
+    jams.unshift(jam);
+    await saveJams(jams);
+    el('#fName').value=''; el('#fVibe').value=''; el('#fNote').value='';
+    closeModal();
+    renderJams();
+  }catch(err){
+    console.error('submitJam failed', err);
+    notifyUser("Couldn't post — check your connection or Firebase setup and try again.");
+  }finally{
+    submitBtn.textContent = 'Post it live';
+    submitBtn.disabled = false;
+  }
 }
 
 // wire up
