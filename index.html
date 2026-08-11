@@ -343,6 +343,53 @@
 
   /* ---------- SPOTS ---------- */
   #spotGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;}
+
+  /* ---------- CAMPUS MAP ---------- */
+  #campusMap{
+    width:100%;height:420px;border-radius:16px;border:2px solid var(--ink);
+    box-shadow:5px 5px 0 var(--blue-dim);overflow:hidden;
+  }
+  @media (max-width:600px){ #campusMap{height:320px;} }
+  #illustratedMap{
+    width:100%;border-radius:16px;border:2px solid var(--ink);
+    box-shadow:5px 5px 0 var(--blue-dim);overflow:hidden;
+    background:linear-gradient(160deg, var(--dusk-2), var(--dusk));
+  }
+  #illustratedMap svg{display:block;width:100%;height:auto;}
+  .illus-spot-dot{
+    fill:var(--blue);stroke:var(--ink);stroke-width:3;
+    transition:fill .2s ease;cursor:pointer;
+  }
+  .illus-spot-dot.is-live{ fill:var(--amber); animation:illusPulse 1.6s ease-in-out infinite; }
+  @keyframes illusPulse{
+    0%,100%{ r:14; }
+    50%{ r:17; }
+  }
+  .illus-label{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;fill:var(--paper);
+  }
+  .illus-sub{
+    font-family:'JetBrains Mono',monospace;font-size:10px;fill:var(--slate);
+  }
+  .map-pin{
+    width:16px;height:16px;border-radius:50%;
+    border:2px solid var(--ink);box-shadow:0 0 0 2px rgba(0,0,0,.3);
+  }
+  .map-pin.is-live{
+    animation:mapPinPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes mapPinPulse{
+    0%,100%{ box-shadow:0 0 0 0 rgba(255,91,61,0.6); }
+    50%{ box-shadow:0 0 0 10px rgba(255,91,61,0); }
+  }
+  .map-popup{font-family:'Space Grotesk',sans-serif;}
+  .map-popup b{display:block;margin-bottom:2px;}
+  .map-popup .mp-live{color:#ff5b3d;font-weight:700;font-family:'JetBrains Mono',monospace;font-size:11px;}
+  .map-popup .mp-quiet{color:#8a92a8;font-family:'JetBrains Mono',monospace;font-size:11px;}
+  .leaflet-popup-content-wrapper{background:var(--dusk);color:var(--paper);border:2px solid var(--ink);border-radius:10px;}
+  .leaflet-popup-tip{background:var(--dusk);}
+  .leaflet-container a.leaflet-popup-close-button{color:var(--paper);}
+
   .spot-card{
     background:var(--dusk);border:2px solid var(--ink);border-radius:12px;
     overflow:hidden;cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;
@@ -534,6 +581,8 @@
     }
   }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
 <div class="stars-layer"></div>
@@ -628,6 +677,21 @@
       <span class="tag mono">tap a spot to start a jam there</span>
     </div>
     <div id="spotGrid"></div>
+  </section>
+
+  <section class="section" id="mapSection">
+    <div class="section-head">
+      <h2>Live Campus Map</h2>
+      <span class="tag mono">🔴 pulsing pin = jam happening now</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+      <button class="btn-ghost" id="locateMeBtn" style="padding:9px 18px;font-size:13px;">📍 My Location</button>
+      <button class="btn-ghost" id="mapStyleToggle" style="padding:9px 18px;font-size:13px;">🗺️ Dark map view</button>
+      <button class="btn-ghost" id="illustratedToggle" style="padding:9px 18px;font-size:13px;">🎨 Illustrated map</button>
+      <span class="mono" id="routeInfo" style="font-size:12px;color:var(--slate);"></span>
+    </div>
+    <div id="campusMap"></div>
+    <div id="illustratedMap" style="display:none;"></div>
   </section>
 
   <footer>
@@ -1025,6 +1089,176 @@ function initHeroBanner(){
   setInterval(()=>{ idx = (idx+1) % SPOTS.length; show(idx); }, 4500);
 }
 
+const CAMPUS_COORDS = {
+  'Knowledge Tree': [26.4691828, 73.1142182],
+  'The Fountain': [26.4704536, 73.113669],
+  'Shamiyana': [26.4767918, 73.1142381],
+  'Jodhpur Club': [26.4700, 73.1155],
+  'Sports Complex': [26.4767561, 73.1195689],
+};
+let campusMap, mapMarkers = {}, userLocation = null, userMarker = null, routeLine = null;
+
+function initCampusMap(){
+  if(typeof L === 'undefined') return;
+  campusMap = L.map('campusMap', { scrollWheelZoom:false }).setView([26.4715, 73.1150], 16);
+
+  const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution:'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom:19
+  });
+  const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom:19
+  });
+  satLayer.addTo(campusMap);
+  let onSatellite = true;
+
+  const toggleBtn = el('#mapStyleToggle');
+  if(toggleBtn){
+    toggleBtn.addEventListener('click', ()=>{
+      if(onSatellite){ campusMap.removeLayer(satLayer); darkLayer.addTo(campusMap); toggleBtn.textContent = '🛰️ Satellite view'; }
+      else { campusMap.removeLayer(darkLayer); satLayer.addTo(campusMap); toggleBtn.textContent = '🗺️ Dark map view'; }
+      onSatellite = !onSatellite;
+    });
+  }
+
+  Object.entries(CAMPUS_COORDS).forEach(([name, coords])=>{
+    const icon = L.divIcon({ className:'map-pin', iconSize:[16,16] });
+    const marker = L.marker(coords, { icon }).addTo(campusMap);
+    marker.bindPopup(buildPopupHtml(name, null));
+    marker.on('popupopen', ()=>{
+      const btn = document.getElementById('dir-btn-' + name.replace(/\s+/g,'_'));
+      if(btn) btn.addEventListener('click', ()=> getDirectionsTo(name, coords));
+    });
+    mapMarkers[name] = marker;
+  });
+}
+
+function buildPopupHtml(name, liveJam){
+  const safeId = name.replace(/\s+/g,'_');
+  const status = liveJam
+    ? `<span class="mp-live">🔴 LIVE — ${escapeHtml(liveJam.name)} is jamming here</span>`
+    : `<span class="mp-quiet">no jam here right now</span>`;
+  return `<div class="map-popup"><b>${name}</b>${status}<button id="dir-btn-${safeId}" class="btn-ghost" style="margin-top:8px;padding:6px 12px;font-size:11px;">🧭 Get Directions</button></div>`;
+}
+
+function projectCampusCoords(){
+  const entries = Object.entries(CAMPUS_COORDS);
+  const lats = entries.map(([,c])=>c[0]);
+  const lngs = entries.map(([,c])=>c[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const latRange = (maxLat-minLat) || 1;
+  const lngRange = (maxLng-minLng) || 1;
+  const padX = 80, padY = 60, drawW = 560, drawH = 320;
+  const positions = {};
+  entries.forEach(([name, coords])=>{
+    const [lat, lng] = coords;
+    const fracX = (lng-minLng)/lngRange;
+    const fracY = (maxLat-lat)/latRange;
+    positions[name] = { x: padX + fracX*drawW, y: padY + fracY*drawH };
+  });
+  return positions;
+}
+
+function renderIllustratedMap(){
+  const positions = projectCampusCoords();
+  const spots = Object.keys(CAMPUS_COORDS);
+  const pathD = spots.map((name,i)=>{
+    const p = positions[name];
+    return (i===0?'M':'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+  }).join(' ');
+
+  const markers = spots.map(name=>{
+    const p = positions[name];
+    const safeId = name.replace(/\s+/g,'_');
+    return `
+      <g>
+        <circle id="illus-dot-${safeId}" class="illus-spot-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="12"></circle>
+        <text class="illus-label" x="${p.x.toFixed(1)}" y="${(p.y-20).toFixed(1)}" text-anchor="middle">${escapeHtml(name)}</text>
+      </g>`;
+  }).join('');
+
+  const svg = `<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg">
+      <rect width="720" height="440" fill="${getComputedStyle(document.documentElement).getPropertyValue('--dusk').trim() || '#131c30'}"/>
+      <path d="${pathD}" fill="none" stroke="var(--blue-dim)" stroke-width="4" stroke-dasharray="10 8" stroke-linecap="round"/>
+      ${markers}
+      <text x="360" y="420" text-anchor="middle" class="illus-sub">illustrated layout — approximate, not to scale</text>
+    </svg>`;
+  el('#illustratedMap').innerHTML = svg;
+}
+
+async function updateMapLiveStatus(){
+  const jams = await loadJams();
+  if(campusMap){
+    Object.entries(mapMarkers).forEach(([name, marker])=>{
+      const liveJam = jams.find(j => j.spot.toLowerCase() === name.toLowerCase());
+      const el = marker.getElement();
+      if(el) el.classList.toggle('is-live', !!liveJam);
+      marker.setPopupContent(buildPopupHtml(name, liveJam));
+    });
+  }
+  Object.keys(CAMPUS_COORDS).forEach(name=>{
+    const safeId = name.replace(/\s+/g,'_');
+    const dot = document.getElementById('illus-dot-' + safeId);
+    if(!dot) return;
+    const liveJam = jams.find(j => j.spot.toLowerCase() === name.toLowerCase());
+    dot.classList.toggle('is-live', !!liveJam);
+  });
+}
+
+function locateUser(){
+  return new Promise((resolve, reject)=>{
+    if(!navigator.geolocation){ reject(new Error('Geolocation not supported')); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos)=> resolve([pos.coords.latitude, pos.coords.longitude]),
+      (err)=> reject(err),
+      { enableHighAccuracy:true, timeout:10000 }
+    );
+  });
+}
+
+el('#locateMeBtn').addEventListener('click', async ()=>{
+  const infoEl = el('#routeInfo');
+  infoEl.textContent = 'Finding you...';
+  try{
+    userLocation = await locateUser();
+    if(userMarker) campusMap.removeLayer(userMarker);
+    userMarker = L.circleMarker(userLocation, { radius:8, color:'#7ea8ff', fillColor:'#7ea8ff', fillOpacity:0.9, weight:2 }).addTo(campusMap);
+    userMarker.bindPopup('You are here').openPopup();
+    campusMap.setView(userLocation, 17);
+    infoEl.textContent = 'Location found — tap a pin, then "Get Directions."';
+  }catch(err){
+    infoEl.textContent = "Couldn't get your location — check location permission for this site.";
+  }
+});
+
+async function getDirectionsTo(name, destCoords){
+  const infoEl = el('#routeInfo');
+  if(!userLocation){
+    infoEl.textContent = 'Tap "My Location" first, then Get Directions.';
+    return;
+  }
+  infoEl.textContent = 'Getting directions...';
+  try{
+    const url = `https://router.project-osrm.org/route/v1/foot/${userLocation[1]},${userLocation[0]};${destCoords[1]},${destCoords[0]}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if(!data.routes || !data.routes[0]){ infoEl.textContent = 'No route found.'; return; }
+    const route = data.routes[0];
+    const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+    if(routeLine) campusMap.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color:'#ff5b3d', weight:4, opacity:0.85 }).addTo(campusMap);
+    campusMap.fitBounds(routeLine.getBounds(), { padding:[30,30] });
+    const mins = Math.round(route.duration/60);
+    const meters = Math.round(route.distance);
+    infoEl.textContent = `🧭 To ${name}: ${meters}m, ~${mins} min walk`;
+  }catch(err){
+    console.error('directions failed', err);
+    infoEl.textContent = "Couldn't fetch directions — try again in a moment.";
+  }
+}
+
 function renderTagFilters(){
   const bar = el('#tagFilters');
   bar.innerHTML = `<button class="tag-pill ${activeTagFilter===null?'active':''}" data-tag="">All</button>` +
@@ -1409,9 +1643,24 @@ showRandomTagline();
 renderTagFilters();
 renderJams();
 renderUpcoming();
+initCampusMap();
+renderIllustratedMap();
+updateMapLiveStatus();
+
+let illustratedActive = false;
+el('#illustratedToggle').addEventListener('click', ()=>{
+  illustratedActive = !illustratedActive;
+  el('#campusMap').style.display = illustratedActive ? 'none' : '';
+  el('#illustratedMap').style.display = illustratedActive ? '' : 'none';
+  el('#locateMeBtn').style.display = illustratedActive ? 'none' : '';
+  el('#mapStyleToggle').style.display = illustratedActive ? 'none' : '';
+  el('#illustratedToggle').textContent = illustratedActive ? '🛰️ Real map' : '🎨 Illustrated map';
+  el('#routeInfo').textContent = '';
+});
 trackView();
 setInterval(renderJams, 8000);
 setInterval(renderUpcoming, 15000);
+setInterval(updateMapLiveStatus, 8000);
 
 // theme switcher
 document.querySelectorAll('.swatch').forEach(sw=>{
