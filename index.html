@@ -217,6 +217,7 @@
   .section-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:10px;}
   .section-head h2{font-family:'Archivo Black',sans-serif;font-size:20px;letter-spacing:-.01em;text-transform:uppercase;}
   .section-head .tag{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--slate);}
+  .section-head .tag.tag-highlight{color:var(--amber);border:1px solid var(--amber-dim);background:var(--amber-dim);padding:5px 12px;border-radius:999px;}
 
   /* ---------- JAM BOARD ---------- */
   #jamGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
@@ -333,6 +334,8 @@
   .join-btn:hover{background:var(--blue);}
   .join-btn.joined{background:var(--card-accent-dim, var(--amber-dim));color:var(--card-accent, var(--amber));border-color:transparent;cursor:default;}
   .del-btn{font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;color:var(--slate);border:1px solid var(--line);padding:8px 10px;border-radius:8px;cursor:pointer;margin-left:6px;transition:color .15s ease,border-color .15s ease;}
+  .del-btn.end-btn{color:var(--amber);border-color:var(--amber-dim);background:var(--amber-dim);}
+  .del-btn.end-btn:hover{color:var(--ink);background:var(--amber);border-color:var(--amber);}
   .del-btn:hover{color:#ff6b6b;border-color:#ff6b6b;}
   .join-count{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--slate);}
   .empty-state{
@@ -486,8 +489,15 @@
     opacity:.4;border:1px dashed var(--line);border-radius:var(--radius);
     padding:12px 16px;font-size:13px;color:var(--slate);margin-bottom:8px;
     font-family:'JetBrains Mono',monospace;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
   }
   .ghost-card b{color:var(--paper);font-family:'Space Grotesk',sans-serif;}
+  .ghost-del-btn{
+    font-family:'JetBrains Mono',monospace;font-size:11px;background:transparent;
+    color:var(--slate);border:1px solid var(--line);padding:5px 8px;border-radius:6px;
+    cursor:pointer;flex-shrink:0;opacity:1;transition:color .15s ease,border-color .15s ease;
+  }
+  .ghost-del-btn:hover{color:#ff6b6b;border-color:#ff6b6b;}
 
   /* ---------- VIEW COUNTER ---------- */
   .view-pill{
@@ -666,7 +676,7 @@
   <section class="section" id="upcomingSection">
     <div class="section-head">
       <h2>Upcoming Jams</h2>
-      <span class="tag mono">scheduled for later</span>
+      <span class="tag mono tag-highlight">📅 scheduled for later</span>
     </div>
     <div id="upcomingGrid"></div>
   </section>
@@ -696,7 +706,8 @@
 
   <footer>
     made by insomniacs, for insomniacs — <b>IIT Jodhpur</b><br>
-    <span style="opacity:0.6;">built by MAGGIE & TONY 🎧</span>
+    <span style="opacity:0.6;">built by MAGGIE & TONY 🎧</span><br>
+    <button id="clearHistoryBtn" class="mono" style="margin-top:16px;background:transparent;border:1px solid var(--line);color:var(--slate);font-size:11px;padding:7px 14px;border-radius:999px;cursor:pointer;transition:color .15s ease,border-color .15s ease;">🗑️ clear jam history</button>
   </footer>
 </main>
 
@@ -917,6 +928,16 @@ function saveJoinedSet(set){
 }
 let localJoined = getJoinedSet();
 let activeTagFilter = null;
+
+function getHostToken(){
+  try{
+    let tok = localStorage.getItem('jam-host-token');
+    if(!tok){ tok = uid() + uid(); localStorage.setItem('jam-host-token', tok); }
+    return tok;
+  }catch(e){ return null; }
+}
+const myHostToken = getHostToken();
+function isMyJam(j){ return !!myHostToken && j.hostToken === myHostToken; }
 
 const TAGS = [
   { id:'acoustic', label:'🎸 Acoustic', accent:'#f3a93b', accentDim:'#3a2c14' },
@@ -1139,7 +1160,7 @@ function buildPopupHtml(name, liveJam){
   const status = liveJam
     ? `<span class="mp-live">🔴 LIVE — ${escapeHtml(liveJam.name)} is jamming here</span>`
     : `<span class="mp-quiet">no jam here right now</span>`;
-  return `<div class="map-popup"><b>${name}</b>${status}<button id="dir-btn-${safeId}" class="btn-ghost" style="margin-top:8px;padding:6px 12px;font-size:11px;">🧭 Get Directions</button></div>`;
+  return `<div class="map-popup"><b>${name}</b>${status}<button id="dir-btn-${safeId}" class="btn-primary" style="margin-top:8px;padding:7px 14px;font-size:11px;box-shadow:3px 3px 0 var(--blue);">🧭 Get Directions</button></div>`;
 }
 
 function projectCampusCoords(){
@@ -1318,6 +1339,7 @@ async function renderJams(){
           <button class="join-btn ${localJoined.has(j.id)?'joined':''}" data-id="${j.id}">${localJoined.has(j.id) ? "you're in" : "I'm coming"}</button>
           <button class="share-btn" data-share="${j.id}" data-sharetext="${shareText}" title="share">↗</button>
           <button class="pin-btn ${j.pinned?'is-pinned':''}" data-pinid="${j.id}" title="pin/unpin">📌</button>
+          ${isMyJam(j) ? `<button class="del-btn end-btn" data-endid="${j.id}" title="end your jam">🏁 end jam</button>` : ''}
           <button class="del-btn" data-delid="${j.id}" title="delete this post">✕</button>
         </div>
       </div>
@@ -1383,12 +1405,21 @@ async function renderJams(){
       renderJams();
     });
   });
-  grid.querySelectorAll('.del-btn').forEach(btn=>{
+  grid.querySelectorAll('.del-btn:not(.end-btn)').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.dataset.delid;
       const pass = await askUser("Admin password to delete this post:", true);
       if(pass === null) return;
       if(pass !== ADMIN_PASSWORD){ notifyUser("Wrong password."); return; }
+      const jams2 = await loadAllJams();
+      const filtered = jams2.filter(j=>j.id!==id);
+      await saveJams(filtered);
+      renderJams();
+    });
+  });
+  grid.querySelectorAll('.end-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.endid;
       const jams2 = await loadAllJams();
       const filtered = jams2.filter(j=>j.id!==id);
       await saveJams(filtered);
@@ -1404,13 +1435,62 @@ async function renderGhostTrail(liveCount){
   const ghosts = await loadGhosts();
   if(ghosts.length === 0){ wrap.innerHTML = ''; return; }
   wrap.innerHTML = `<div class="gt-label">recently, on this board —</div>` +
-    ghosts.map(g => `<div class="ghost-card">🎵 <b>${escapeHtml(g.name)}</b> jammed at ${escapeHtml(g.spot)} · ${timeAgo(g.ts)}</div>`).join('');
+    ghosts.map(g => `<div class="ghost-card"><span>🎵 <b>${escapeHtml(g.name)}</b> jammed at ${escapeHtml(g.spot)} · ${timeAgo(g.ts)}</span>${isMyJam(g) ? `<button class="ghost-del-btn end-btn" data-endid="${g.id}" title="remove your post">✕</button>` : `<button class="ghost-del-btn" data-delid="${g.id}" title="delete this post">✕</button>`}</div>`).join('');
+  wrap.querySelectorAll('.ghost-del-btn:not(.end-btn)').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.delid;
+      const pass = await askUser("Admin password to delete this post:", true);
+      if(pass === null) return;
+      if(pass !== ADMIN_PASSWORD){ notifyUser("Wrong password."); return; }
+      const jams2 = await loadAllJams();
+      const filtered = jams2.filter(j=>j.id!==id);
+      await saveJams(filtered);
+      renderJams();
+    });
+  });
+  wrap.querySelectorAll('.ghost-del-btn.end-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.endid;
+      const jams2 = await loadAllJams();
+      const filtered = jams2.filter(j=>j.id!==id);
+      await saveJams(filtered);
+      renderJams();
+    });
+  });
 }
 
 function escapeHtml(str){
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+// ---------- basic profanity filter ----------
+const BAD_WORDS = [
+  'fuck','fucker','fucking','motherfucker','shit','bullshit','bitch','asshole','ass',
+  'bastard','dick','dickhead','cock','pussy','cunt','whore','slut','slutty','prick',
+  'nigger','nigga','faggot','fag','retard','retarded','rape','rapist',
+  'chutiya','chutiye','madarchod','behenchod','bhenchod','bsdk','bhosdi','bhosdike',
+  'randi','gandu','gandu','harami','haramzada','saala kutta','kutta','kutti',
+  'lund','lauda','loda','chodu','chod','jhant','tatti'
+];
+function normalizeForFilter(str){
+  return (str||'')
+    .toLowerCase()
+    .replace(/[@]/g,'a').replace(/[3]/g,'e').replace(/[1!]/g,'i')
+    .replace(/[0]/g,'o').replace(/[$5]/g,'s')
+    .replace(/[^a-z\s]/g,'');
+}
+function containsBadWords(text){
+  if(!text) return false;
+  const norm = normalizeForFilter(text);
+  return BAD_WORDS.some(w => new RegExp('\\b' + w.replace(/\s+/g,'\\s+') + '\\b','i').test(norm));
+}
+function firstBadFieldMessage(fields){
+  for(const f of fields){
+    if(containsBadWords(f.value)) return f.label;
+  }
+  return null;
 }
 
 function openModal(){ el('#overlay').classList.add('open'); }
@@ -1452,9 +1532,24 @@ async function submitJam(){
     setTimeout(()=>{ nameEl.style.borderColor = ''; }, 2000);
     return;
   }
+  const customPlaceEl = el('#fCustomPlace');
+  const customPlaceRaw = spot === 'Other' ? customPlaceEl.value.trim() : '';
+  const badField = firstBadFieldMessage([
+    { label: nameEl, value: name },
+    { label: el('#fVibe'), value: vibe },
+    { label: el('#fNote'), value: note },
+    { label: customPlaceEl, value: customPlaceRaw }
+  ]);
+  if(badField){
+    badField.style.borderColor = '#ff6b6b';
+    badField.focus();
+    setTimeout(()=>{ badField.style.borderColor = ''; }, 2000);
+    notifyUser("Let's keep it clean — please remove the inappropriate language and try again.");
+    return;
+  }
   let customPhoto = null;
   if(spot === 'Other'){
-    const customName = el('#fCustomPlace').value.trim();
+    const customName = customPlaceRaw;
     if(customName) spot = customName;
     const fileInput = el('#fCustomPhoto');
     if(fileInput.files && fileInput.files[0]){
@@ -1467,7 +1562,7 @@ async function submitJam(){
   submitBtn.disabled = true;
   try{
     const jams = await loadAllJams();
-    const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), joins: 0, pinned: false, reactions: {fire:0, skull:0, cry:0, sparkle:0}, customPhoto };
+    const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), joins: 0, pinned: false, reactions: {fire:0, skull:0, cry:0, sparkle:0}, customPhoto, hostToken: myHostToken };
     jams.unshift(jam);
     await saveJams(jams);
     el('#fName').value=''; el('#fVibe').value=''; el('#fNote').value='';
@@ -1539,6 +1634,7 @@ async function renderUpcoming(){
         <span class="join-count mono">${j.joins||0} interested</span>
         <div>
           <button class="join-btn ${localJoined.has(j.id)?'joined':''}" data-id="${j.id}">${localJoined.has(j.id) ? "you're in" : "I'm interested"}</button>
+          ${isMyJam(j) ? `<button class="del-btn end-btn" data-endid="${j.id}" title="end your jam">🏁 end jam</button>` : ''}
           <button class="del-btn" data-delid="${j.id}" title="cancel this jam">✕</button>
         </div>
       </div>
@@ -1556,12 +1652,21 @@ async function renderUpcoming(){
       renderUpcoming();
     });
   });
-  grid.querySelectorAll('.del-btn').forEach(btn=>{
+  grid.querySelectorAll('.del-btn:not(.end-btn)').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const id = btn.dataset.delid;
       const pass = await askUser("Admin password to cancel this scheduled jam:", true);
       if(pass === null) return;
       if(pass !== ADMIN_PASSWORD){ notifyUser("Wrong password."); return; }
+      const jams2 = await loadAllJams();
+      const filtered = jams2.filter(j=>j.id!==id);
+      await saveJams(filtered);
+      renderUpcoming();
+    });
+  });
+  grid.querySelectorAll('.end-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.endid;
       const jams2 = await loadAllJams();
       const filtered = jams2.filter(j=>j.id!==id);
       await saveJams(filtered);
@@ -1602,9 +1707,22 @@ async function submitSchedule(){
     notifyUser("Pick a date/time in the future.");
     return;
   }
+  const customPlaceRaw = spot === 'Other' ? el('#sCustomPlace').value.trim() : '';
   if(spot === 'Other'){
-    const customName = el('#sCustomPlace').value.trim();
-    if(customName) spot = customName;
+    if(customPlaceRaw) spot = customPlaceRaw;
+  }
+  const badField = firstBadFieldMessage([
+    { label: nameEl, value: name },
+    { label: el('#sVibe'), value: vibe },
+    { label: el('#sNote'), value: note },
+    { label: el('#sCustomPlace'), value: customPlaceRaw }
+  ]);
+  if(badField){
+    badField.style.borderColor = '#ff6b6b';
+    badField.focus();
+    setTimeout(()=>{ badField.style.borderColor = ''; }, 2000);
+    notifyUser("Let's keep it clean — please remove the inappropriate language and try again.");
+    return;
   }
 
   const submitBtn = el('#scheduleSubmitBtn');
@@ -1612,7 +1730,7 @@ async function submitSchedule(){
   submitBtn.disabled = true;
   try{
     const jams = await loadAllJams();
-    const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), eventTime, scheduled: true, joins: 0, pinned: false, reactions: {fire:0, skull:0, cry:0, sparkle:0} };
+    const jam = { id: uid(), name, spot, tag, vibe, note, ts: Date.now(), eventTime, scheduled: true, joins: 0, pinned: false, reactions: {fire:0, skull:0, cry:0, sparkle:0}, hostToken: myHostToken };
     jams.unshift(jam);
     await saveJams(jams);
     el('#sName').value=''; el('#sVibe').value=''; el('#sNote').value=''; el('#sDate').value=''; el('#sTime').value=''; el('#sCustomPlace').value='';
@@ -1627,6 +1745,19 @@ async function submitSchedule(){
     submitBtn.disabled = false;
   }
 }
+
+el('#clearHistoryBtn').addEventListener('click', async ()=>{
+  const pass = await askUser("Admin password to clear ALL jam history:", true);
+  if(pass === null) return;
+  if(pass !== ADMIN_PASSWORD){ notifyUser("Wrong password."); return; }
+  const confirmPass = await askUser("This deletes every live and scheduled jam for everyone. Type the password again to confirm:", true);
+  if(confirmPass === null) return;
+  if(confirmPass !== ADMIN_PASSWORD){ notifyUser("Wrong password."); return; }
+  await saveJams([]);
+  renderJams();
+  renderUpcoming();
+  notifyUser("Jam history cleared.");
+});
 
 el('#openScheduleBtn').addEventListener('click', openScheduleModal);
 el('#scheduleCancelBtn').addEventListener('click', closeScheduleModal);
